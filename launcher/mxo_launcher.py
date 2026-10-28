@@ -17,6 +17,8 @@ ART = os.path.join(HERE, "art")
 CONF = retro.read_conf(os.path.join(DEST, "mxo-installer.conf"))
 WORLD = CONF.get("WORLD", "Reality")
 SERVER = CONF.get("SERVER", "")
+VERSION = "1.2.0"                                  # this launcher's release; signed updates come from UPDATES (GitHub)
+UPDATES = CONF.get("UPDATES", "hsmasteryoda/matrix-online-launcher")
 
 # resource ids in launcher.exe (MxO 7.6005)
 BMP = {"frame": 186, "splash": 185, "agent": 183, "min": 195, "min_p": 192, "close": 193, "close_p": 194,
@@ -176,6 +178,25 @@ class Launcher:
 
     # ---- "Full System Check": the files the game needs, and our server settings
     def check(self):
+        """First a signed launcher update (from the GitHub releases), then the file scan."""
+        if not os.access(HERE, os.W_OK):
+            return self.scan()
+        def found(u):
+            if not isinstance(u, tuple):              # no update, or no internet
+                return self.scan()
+            self.s.c.itemconfig(self.bars[0], image=self.imgs["bar_dl"], state="normal")
+            def done(ok):
+                if ok is True:
+                    self.s.c.itemconfig(self.bars[1], state="normal")
+                    self.terminal(["signature and checksums OK.", "restarting the launcher..."], then=lambda: self.s.later(600, retro.restart))
+                else:
+                    self.s.c.itemconfig(self.bars[0], state="hidden")
+                    self.terminal(["update failed - keeping this version."], then=self.scan)
+            self.terminal(["launcher update v%s found (you have v%s)" % (u[0], VERSION), "downloading..."],
+                          then=lambda: retro.background(lambda: retro.apply_update(UPDATES, u, HERE), done, self.s.root))
+        retro.background(lambda: retro.check_update(UPDATES, VERSION), found, self.s.root)
+
+    def scan(self):
         need = ["client.dll", "launcher.exe", "MatrixPrivate.exe", "useropts.cfg", "resource"]
         bad = [f for f in need if not os.path.exists(os.path.join(GAME, f))]
         self.s.c.itemconfig(self.bars[0], state="normal")

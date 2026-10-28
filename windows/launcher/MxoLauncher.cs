@@ -19,6 +19,8 @@ namespace Retro
         static string ArtDir = Path.Combine(Dir, "launcher-art");
         static Dictionary<string, string> Conf = Art.ReadConf(Path.Combine(Dir, "launcher.conf"));
         static string World = Art.Get(Conf, "WORLD", "Reality"), Server = Art.Get(Conf, "SERVER", "");
+        const string Version = "1.2.0";        // this launcher's release; signed updates come from UPDATES= (GitHub releases)
+        static string Repo = Art.Get(Conf, "UPDATES", "hsmasteryoda/matrix-online-launcher");
 
         static readonly Dictionary<string, int> Bmp = new Dictionary<string, int> {
             {"frame",186},{"splash",185},{"min",195},{"min_p",192},{"close",193},{"close_p",194},
@@ -170,7 +172,32 @@ namespace Retro
                          w, h, m, new[] { "fullscreen", "windowed" }, (nw, nh, nm) => { WriteDisplay(nw, nh, nm); ShowLink(); });
         }
 
+        // first a signed launcher update from the GitHub releases (rebuilt on this PC, then restarted), then the file scan
         void Check()
+        {
+            string exe = Application.ExecutablePath; Updater.Cleanup(exe);
+            new Thread(() =>
+            {
+                var u = Updater.Check(Repo, Version);
+                f.BeginInvoke((Action)(() =>
+                {
+                    if (u == null) { Scan(); return; }
+                    bar1.Img = I("bar_dl"); bar1.Visible = true; f.Invalidate();
+                    Say(new[] { "launcher update v" + u.Version + " found (you have v" + Version + ")", "downloading..." }, () =>
+                        new Thread(() =>
+                        {
+                            bool ok = Updater.Apply(Repo, u, Dir, exe);
+                            f.BeginInvoke((Action)(() =>
+                            {
+                                if (ok) { bar2.Visible = true; Say(new[] { "signature and checksums OK.", "restarting the launcher..." }, () => { Art.Start(exe, "", Dir); f.Close(); }); }
+                                else { bar1.Img = I("bar_done"); bar1.Visible = false; Say(new[] { "update failed - keeping this version." }, Scan); }
+                            }));
+                        }) { IsBackground = true }.Start());
+                }));
+            }) { IsBackground = true }.Start();
+        }
+
+        void Scan()
         {
             string[] need = { "client.dll", "launcher.exe", "MatrixPrivate.exe", "useropts.cfg", "resource" };
             var bad = new List<string>();
