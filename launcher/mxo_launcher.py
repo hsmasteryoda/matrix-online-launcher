@@ -5,7 +5,7 @@ Reads the window art, buttons, sounds and terminal lines out of the player's lau
 runs a quick "Full System Check" of the install, shows our world's status and starts the game.
 usage: mxo_launcher.py [--extract | --install]     (--extract only rebuilds the art cache; --install = setup wizard)
 """
-import json, os, struct, sys, urllib.request
+import json, os, re, struct, sys, urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -66,6 +66,37 @@ def sound(name):
         if os.path.exists(p) and any(os.access(os.path.join(d, player), os.X_OK) for d in os.environ.get("PATH", "").split(":")):
             retro.detach([player, p] + (["-q"] if player == "aplay" else []))
             return
+
+
+def read_display(path=None):
+    """(width, height, mode) from useropts.cfg, falling back to autoexec.cfg's defaults (1024 x 768, fullscreen)."""
+    v = {}
+    for f in ("autoexec.cfg", "useropts.cfg") if path is None else (path,):
+        try:
+            for line in open(path or os.path.join(GAME, f), encoding="latin-1"):
+                m = re.match(r"\s*(ScreenWidth|ScreenHeight|Windowed)\s*=\s*(\d+)", line, re.I)
+                if m:
+                    v[m.group(1).lower()] = int(m.group(2))
+        except OSError:
+            pass
+    return v.get("screenwidth", 1024), v.get("screenheight", 768), "windowed" if v.get("windowed") else "fullscreen"
+
+
+def write_display(w, h, mode, path=None):
+    """Set ScreenWidth / ScreenHeight / Windowed in useropts.cfg (it overrides autoexec.cfg), keeping the other lines."""
+    path = path or os.path.join(GAME, "useropts.cfg")
+    want = {"screenwidth": ("ScreenWidth", w), "screenheight": ("ScreenHeight", h), "windowed": ("Windowed", int(mode == "windowed"))}
+    try:
+        lines = open(path, encoding="latin-1").read().splitlines()
+    except OSError:
+        lines = []
+    out = []
+    for line in lines:
+        m = re.match(r"\s*(\w+)\s*=", line)
+        if not (m and m.group(1).lower() in want):
+            out.append(line)
+    out += ["%s = %d" % want[k] for k in ("screenwidth", "screenheight", "windowed")]
+    open(path, "w", encoding="latin-1").write("\n".join(out) + "\n")
 
 
 def status():
@@ -132,7 +163,7 @@ class Launcher:
         y = y0 + 4 + 14 * len(self.lines)
         if y > y1 - 14:
             self.s.c.move("term", 0, -14 * self.s.s); y -= 14
-            self.lines = self.lines[1:]
+            self.s.c.delete(self.lines[0]); self.lines = self.lines[1:]     # scrolled off the top
         item = self.s.text(x0 + 4, y, "", size=10, color=self.GREEN, font="DejaVu Sans Mono", tags=("term",))
         self.lines.append(item)
         def type_(n=0):
@@ -170,13 +201,40 @@ class Launcher:
                        "  %-22s %-8s %s" % (self.S["name"], self.S["status"], "Load"),
                        "  %-22s %-8s %s" % (WORLD, st, load)], then=lambda: self.ready(up))
 
+    def link(self, text, cmd):
+        """A clickable green terminal line (like the menus of the era)."""
+        x0, y0, x1, y1 = self.PANEL
+        y = y0 + 4 + 14 * len(self.lines)
+        if y > y1 - 14:
+            self.s.c.move("term", 0, -14 * self.s.s); y -= 14; self.s.c.delete(self.lines[0]); self.lines = self.lines[1:]
+        item = self.s.text(x0 + 4, y, text, size=10, color="#a8ffb0", font="DejaVu Sans Mono", tags=("term", "btn"))
+        self.lines.append(item)
+        c = self.s.c
+        c.tag_bind(item, "<Enter>", lambda e: (c.itemconfig(item, fill="#ffffff"), c.config(cursor="hand2")))
+        c.tag_bind(item, "<Leave>", lambda e: (c.itemconfig(item, fill="#a8ffb0"), c.config(cursor="")))
+        c.tag_bind(item, "<ButtonRelease-1>", lambda e: self.s.later(60, cmd))
+        return item
+
+    def display_line(self):
+        w, h, mode = read_display()
+        return "> Display: %d x %d, %s  [change]" % (w, h, mode)
+
+    def display(self):
+        sound("click")
+        def save(w, h, m):
+            write_display(w, h, m)
+            for i in self.s.c.find_withtag("display"):
+                self.s.c.itemconfig(i, text=self.display_line())
+        retro.display_dialog(self.s.root, {"bg": "#020c04", "fg": "#9fdca6", "accent": self.GREEN, "btn_bg": "#0b2410",
+                                           "font": "DejaVu Sans Mono"}, read_display(), save, modes=("fullscreen", "windowed"))
+
     def ready(self, up):
         s = self.s
         s.c.delete(self.play)
         self.play = s.button(339, 324, art("play"), art("play_hi"), art("play_pr"), command=self.launch)
         self.set_tab("tab_done")
-        if not up:
-            self.terminal(["", "(the world isn't answering right now - you can still try)"])
+        add = lambda: self.s.c.addtag_withtag("display", self.link(self.display_line(), self.display))
+        self.terminal(["", "(the world isn't answering right now - you can still try)", ""] if not up else [""], then=add)
 
     # ---- buttons
     def launch(self):
@@ -208,10 +266,12 @@ class Launcher:
     def support(self):
         sound("click"); self.clear()
         self.terminal(["SUPPORT", "",
-                       "Graphics settings: run 'The Matrix Online Settings'",
+                       "Screen size and windowed mode: the line below.",
+                       "Detail settings: 'The Matrix Online Settings'",
                        "from your menu (auto-detect tool).",
                        "Can't log in? The server may be restarting - try",
-                       "again in a minute.  Install folder:", "  " + DEST], speed=3)
+                       "again in a minute.  Install folder:", "  " + DEST, ""], speed=3,
+                      then=lambda: self.s.c.addtag_withtag("display", self.link(self.display_line(), self.display)))
 
 
 def install_wizard():

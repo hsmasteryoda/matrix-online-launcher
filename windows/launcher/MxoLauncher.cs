@@ -95,9 +95,17 @@ namespace Retro
                 g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
                 int y = Panel.Y + 4;
                 var all = new List<string>(term); all.Add(typing);
-                int first = Math.Max(0, all.Count - Panel.Height / 14);
+                int first = Math.Max(0, all.Count + (link != null ? 1 : 0) - Panel.Height / 14);
                 for (int i = first; i < all.Count; i++, y += 14) g.DrawString(all[i], mono, green, Panel.X + 2, y);
+                if (link != null)
+                {
+                    y -= 14;     // the empty "typing" slot
+                    using (var b = new SolidBrush(linkHot ? Color.White : Color.FromArgb(168, 255, 176))) g.DrawString(link, mono, b, Panel.X + 2, y);
+                    linkSpot.Rect = new Rectangle(Panel.X + 2, y, (int)g.MeasureString(link, mono).Width, 14);
+                }
             };
+            linkSpot = f.Hotspot(Rectangle.Empty, () => { if (link != null) DisplaySettings(); },
+                                 () => { linkHot = true; f.Invalidate(); }, () => { linkHot = false; f.Invalidate(); });
             typer = new System.Windows.Forms.Timer { Interval = 12 };
             typer.Tick += Type;
             Say(new[] { S["os"], "", S["ssh"], S["check"] }, Check);
@@ -120,7 +128,47 @@ namespace Retro
             if (pos >= current.Length) { term.Add(current); typing = ""; NextLine(); }
             f.Invalidate();
         }
-        void Clear() { term.Clear(); pending.Clear(); typing = ""; current = null; }
+        void Clear() { term.Clear(); pending.Clear(); typing = ""; current = null; link = null; linkSpot.Rect = Rectangle.Empty; }
+
+        // ---- resolution: ScreenWidth / ScreenHeight / Windowed in useropts.cfg (it overrides autoexec.cfg)
+        string link; bool linkHot; Skin.Spot linkSpot;
+
+        static void ReadDisplay(out int w, out int h, out string mode)
+        {
+            var v = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase) { { "ScreenWidth", 1024 }, { "ScreenHeight", 768 }, { "Windowed", 0 } };
+            foreach (var cfg in new[] { "autoexec.cfg", "useropts.cfg" })
+            {
+                string p = Path.Combine(Dir, cfg); if (!File.Exists(p)) continue;
+                foreach (var line in File.ReadAllLines(p))
+                {
+                    var m = Regex.Match(line, @"^\s*(ScreenWidth|ScreenHeight|Windowed)\s*=\s*(\d+)", RegexOptions.IgnoreCase);
+                    if (m.Success) v[m.Groups[1].Value] = int.Parse(m.Groups[2].Value);
+                }
+            }
+            w = v["ScreenWidth"]; h = v["ScreenHeight"]; mode = v["Windowed"] != 0 ? "windowed" : "fullscreen";
+        }
+
+        static void WriteDisplay(int w, int h, string mode)
+        {
+            string p = Path.Combine(Dir, "useropts.cfg");
+            var o = new List<string>();
+            if (File.Exists(p))
+                foreach (var line in File.ReadAllLines(p))
+                    if (!Regex.IsMatch(line, @"^\s*(ScreenWidth|ScreenHeight|Windowed)\s*=", RegexOptions.IgnoreCase)) o.Add(line);
+            o.Add("ScreenWidth = " + w); o.Add("ScreenHeight = " + h); o.Add("Windowed = " + (mode == "windowed" ? 1 : 0));
+            File.WriteAllLines(p, o.ToArray());
+        }
+
+        static string DisplayLine() { int w, h; string m; ReadDisplay(out w, out h, out m); return "> Display: " + w + " x " + h + ", " + m + "  [change]"; }
+        void ShowLink() { link = DisplayLine(); f.Invalidate(); }
+
+        void DisplaySettings()
+        {
+            Sound("click");
+            int w, h; string m; ReadDisplay(out w, out h, out m);
+            Display.Show(f, Color.FromArgb(2, 12, 4), Color.FromArgb(159, 220, 166), Color.FromArgb(56, 232, 72), Color.FromArgb(11, 36, 16), "Consolas",
+                         w, h, m, new[] { "fullscreen", "windowed" }, (nw, nh, nm) => { WriteDisplay(nw, nh, nm); ShowLink(); });
+        }
 
         void Check()
         {
@@ -167,7 +215,7 @@ namespace Retro
         {
             play.Img = I("play"); play.Hover = I("play_hi"); play.Pressed = I("play_pr"); play.Click = Launch;
             tab.Img = I("tab_done"); f.Invalidate();
-            if (!up) Say(new[] { "", "(the world isn't answering right now - you can still try)" }, null);
+            Say(up ? new[] { "" } : new[] { "", "(the world isn't answering right now - you can still try)", "" }, ShowLink);
         }
 
         void Launch()
@@ -207,8 +255,9 @@ namespace Retro
         void Support()
         {
             Sound("click"); Clear();
-            Say(new[] { "SUPPORT", "", "Graphics settings: 'The Matrix Online Settings'", "in the Start menu (auto-detect tool).",
-                "Can't log in? The server may be restarting - try", "again in a minute.  Install folder:", "  " + Dir }, null);
+            Say(new[] { "SUPPORT", "", "Screen size and windowed mode: the line below.", "Detail settings: 'The Matrix Online Settings'",
+                "in the Start menu (auto-detect tool).", "Can't log in? The server may be restarting - try", "again in a minute.  Install folder:",
+                "  " + Dir, "" }, ShowLink);
         }
 
         [STAThread]

@@ -11,6 +11,8 @@ and Linux.
 - **The real 2005 launcher look.** The launcher is rebuilt from the original launcher's own skin, buttons, sounds
   and ZionOS terminal, which it reads from your game files. It runs a quick system check, shows the world's
   status, and PLAY takes you in.
+- **Pick your resolution.** The game starts at 1024 x 768 (4:3) and has no option for it, so the launcher's green
+  **Display** line sets your screen's size (16:9, 16:10, ultrawide...) and Fullscreen / Windowed before you play.
 - **No game files are in this repository.** The installer downloads the community MxO client (7.6005, 1.3 GB, from
   [files.mxoemu.info](https://files.mxoemu.info/)), or uses a copy you already have.
 

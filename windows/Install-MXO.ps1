@@ -54,19 +54,22 @@ function Set-Look($banner, $bannerH, $bg, $fg, $accent, $box) {
 }
 # Builds "<dest>\<exeName>" and lets it read its art; returns the exe, or $null (shortcuts then start the game directly)
 function Build-Launcher($dest, $exeName, $conf) {
-    if (-not $LauncherSrc.Count) { return $null }
+    $log = Join-Path $dest "launcher-build.log"     # anything that goes wrong is written here
+    if (-not $LauncherSrc.Count) { "launcher source (windows\launcher\*.cs) not found next to the installer" | Set-Content $log; return $null }
     $exe = Join-Path $dest $exeName
     try {
         $cp = New-Object System.CodeDom.Compiler.CompilerParameters
         $cp.GenerateExecutable = $true; $cp.OutputAssembly = $exe; $cp.CompilerOptions = "/target:winexe /optimize"
         [void]$cp.ReferencedAssemblies.AddRange([string[]]@("System.dll", "System.Drawing.dll", "System.Windows.Forms.dll"))
         $r = (New-Object Microsoft.CSharp.CSharpCodeProvider).CompileAssemblyFromSource($cp, [string[]]$LauncherSrc)
-        if ($r.Errors.HasErrors) { return $null }
+        if ($r.Errors.HasErrors) { $r.Errors | ForEach-Object { $_.ToString() } | Set-Content $log; return $null }
         [System.IO.File]::WriteAllText((Join-Path $dest "launcher.conf"), $conf)
         $p = Start-Process -FilePath $exe -ArgumentList "--extract" -WorkingDirectory $dest -PassThru
         while (-not $p.HasExited) { Start-Sleep -Milliseconds 200; [System.Windows.Forms.Application]::DoEvents() }
-    } catch { return $null }
-    if (Test-Path (Join-Path $dest "launcher-art\icon.ico")) { return $exe }
+    } catch { "$($_.Exception.Message)" | Set-Content $log; if (-not (Test-Path $exe)) { return $null } }
+    # built: use it even if the art didn't come out (it tries again, and says why, when it starts)
+    if (-not (Test-Path (Join-Path $dest "launcher-art\strings.txt"))) { "launcher built, but reading the art from launcher.exe failed" | Set-Content $log }
+    if (Test-Path $exe) { return $exe }
     return $null
 }
 
@@ -176,6 +179,9 @@ function Install-Mxo {
     Set-Status "Building the launcher (reads the original launcher's skin from launcher.exe)..."
     $launcher = Build-Launcher $dest "MxO Launcher.exe" "SERVER=$server`r`nWORLD=$World`r`n"
     $play = if ($launcher) { @("MxO Launcher.exe", "") } else { @("MatrixPrivate.exe", "-nopatch -clone") }
+    if (-not $launcher) {
+        [System.Windows.Forms.MessageBox]::Show("The MxO launcher couldn't be built on this PC, so the shortcuts start the game directly.`n`nThe reason is in $dest\launcher-build.log", "The Matrix Online installer", "OK", "Warning") | Out-Null
+    }
 
     Set-Status "Making shortcuts..."
     $sh = New-Object -ComObject WScript.Shell
@@ -185,7 +191,7 @@ function Install-Mxo {
     if ($desk.Checked) { $links += , @((Join-Path ([Environment]::GetFolderPath("CommonDesktopDirectory")) "The Matrix Online.lnk"), $play[0], $play[1]) }
     foreach ($l in $links) {
         $s = $sh.CreateShortcut($l[0]); $s.TargetPath = Join-Path $dest $l[1]; $s.Arguments = $l[2]; $s.WorkingDirectory = $dest
-        if ($launcher -and $l[1] -eq $play[0]) { $s.IconLocation = Join-Path $dest "launcher-art\icon.ico" }
+        if ($launcher -and $l[1] -eq $play[0] -and (Test-Path (Join-Path $dest "launcher-art\icon.ico"))) { $s.IconLocation = Join-Path $dest "launcher-art\icon.ico" }
         $s.Save()
     }
     $bar.MarqueeAnimationSpeed = 0
