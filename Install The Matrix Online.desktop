@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Install The Matrix Online
+Comment=Install The Matrix Online and join the Sugma Big Tasty world
+Exec=sh -c 'cd "$(dirname "%k")" && ./install-mxo-linux.sh'
+Icon=system-software-install
+Terminal=false

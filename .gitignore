@@ -1,0 +1,10 @@
+# never commit game files
+*.7z
+*.zip
+*.exe
+*.dll
+*.pkb
+launcher/art/
+__pycache__/
+*.tar.gz
+dist/
