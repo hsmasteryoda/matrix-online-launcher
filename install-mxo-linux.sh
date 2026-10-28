@@ -108,7 +108,9 @@ assert b[0xB6080:0xB6180] == b[0xB6B38:0xB6C38] and b[0xB6180:0xB6188] == b"Auth
 b[0xB6080:0xB6180] = k; b[0xB6B38:0xB6C38] = k
 open(out, "wb").write(b)
 EOF
+keep=$(grep -iE '^\s*(ScreenWidth|ScreenHeight|Windowed)\s*=' "$G/useropts.cfg" 2>/dev/null || true)   # the launcher's Display choice
 printf 'UseLaunchPad = 0\r\nAuthServerDNSName = "%s"\r\nMarginServerDNSSuffix = "%s"\r\n' "$AUTH" "$SUFFIX" > "$G/useropts.cfg"
+[ -n "$keep" ] && printf '%s\n' "$keep" >> "$G/useropts.cfg"
 
 # 6. server names -> /etc/hosts (the client looks the server up by name)
 want="$SERVER $AUTH $WORLD$SUFFIX # matrix-online-installer"

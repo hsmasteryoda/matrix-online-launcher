@@ -166,7 +166,9 @@ function Install-Mxo {
     if ($tag -ne "AuthServ" -or -not $same) { throw "Unexpected launcher.exe version - can't add the server key." }
     [Array]::Copy($k, 0, $b, 0xB6080, 256); [Array]::Copy($k, 0, $b, 0xB6B38, 256)
     [System.IO.File]::WriteAllBytes("$dest\MatrixPrivate.exe", $b)
-    [System.IO.File]::WriteAllText("$dest\useropts.cfg", "UseLaunchPad = 0`r`nAuthServerDNSName = `"$AuthName`"`r`nMarginServerDNSSuffix = `"$Suffix`"`r`n")
+    $keep = ""   # the launcher's Display choice (resolution / windowed) survives a re-install
+    if (Test-Path "$dest\useropts.cfg") { $keep = (@(Get-Content "$dest\useropts.cfg" | Where-Object { $_ -match '^\s*(ScreenWidth|ScreenHeight|Windowed)\s*=' }) | ForEach-Object { "$_`r`n" }) -join "" }
+    [System.IO.File]::WriteAllText("$dest\useropts.cfg", "UseLaunchPad = 0`r`nAuthServerDNSName = `"$AuthName`"`r`nMarginServerDNSSuffix = `"$Suffix`"`r`n$keep")
 
     if (-not $byName) {   # by IP: the client looks the server up by name, so the names go in the hosts file
         Set-Status "Adding the server names to the hosts file..."
